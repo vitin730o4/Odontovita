@@ -87,7 +87,7 @@ footer{background:#0a2638;color:#c3d0d6;padding:38px 0}.footer-row{display:flex;
 <a class="whatsapp" href="https://wa.me/5511946401535" target="_blank" rel="noopener" aria-label="Fale pelo WhatsApp">◔</a>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-app.js";
-import { getFirestore, collection, addDoc, serverTimestamp, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, serverTimestamp, query, orderBy, getDocs, doc, updateDoc } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -127,19 +127,127 @@ const auth = getAuth(app);
  const loginForm=document.getElementById('loginForm');
  loginForm.addEventListener('submit',async e=>{e.preventDefault();const msg=document.getElementById('loginMsg');msg.textContent='Verificando acesso...';try{await signInWithEmailAndPassword(auth,document.getElementById('adminEmail').value.trim(),document.getElementById('adminPassword').value);msg.textContent='';}catch(err){msg.textContent='Não foi possível entrar. Confira o e-mail e a senha do administrador.';}});
  document.getElementById('logoutBtn').addEventListener('click',()=>signOut(auth));
- onAuthStateChanged(auth,async user=>{
-   document.getElementById('adminLogin').style.display=user?'none':'block';
-   document.getElementById('adminArea').style.display=user?'block':'none';
-   if(!user)return;
-   const msg=document.getElementById('adminMsg'), list=document.getElementById('appointmentsList'); msg.textContent='Carregando agendamentos...';
-   try {const snap=await getDocs(query(collection(db,'agendamentos'),orderBy('createdAt','desc')));
-     if(snap.empty){list.innerHTML='<p>Nenhum agendamento recebido ainda.</p>';msg.textContent='';return;}
-     const table=document.createElement('table');table.style.cssText='width:100%;border-collapse:collapse;font-size:13px';
-     table.innerHTML='<thead><tr><th>Nome</th><th>WhatsApp</th><th>Tratamento</th><th>Data</th><th>Período</th><th>Observação</th><th>Status</th></tr></thead>';
-     const tbody=document.createElement('tbody');
-     snap.forEach(doc=>{const a=doc.data(),tr=document.createElement('tr');[a.nome,a.telefone,a.servico,a.data,a.horario,a.obs||'',a.status||'Solicitado'].forEach(val=>{const td=document.createElement('td');td.textContent=val||'';td.style.cssText='padding:10px;border-top:1px solid #ddd;vertical-align:top';tr.appendChild(td);});tbody.appendChild(tr);});
-     table.appendChild(tbody);list.replaceChildren(table);msg.textContent=`${snap.size} agendamento(s).`;
-   } catch(err){console.error(err);msg.textContent='Erro ao carregar. Confira as regras do Firestore.';}
- });
+ onAuthStateChanged(auth, async user => {
+  document.getElementById('adminLogin').style.display = user ? 'none' : 'block';
+  document.getElementById('adminArea').style.display = user ? 'block' : 'none';
+
+  if (!user) return;
+
+  const msg = document.getElementById('adminMsg');
+  const list = document.getElementById('appointmentsList');
+  msg.textContent = 'Carregando agendamentos...';
+
+  try {
+    const snap = await getDocs(
+      query(collection(db, 'agendamentos'), orderBy('createdAt', 'desc'))
+    );
+
+    if (snap.empty) {
+      list.innerHTML = '<p>Nenhum agendamento recebido ainda.</p>';
+      msg.textContent = '';
+      return;
+    }
+
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>WhatsApp</th>
+          <th>Tratamento</th>
+          <th>Data</th>
+          <th>Período</th>
+          <th>Observação</th>
+          <th>Status</th>
+          <th>Ações</th>
+        </tr>
+      </thead>`;
+
+    const tbody = document.createElement('tbody');
+
+    snap.forEach(item => {
+      const a = item.data();
+      const tr = document.createElement('tr');
+
+      [a.nome, a.telefone, a.servico, a.data, a.horario, a.obs || '', a.status || 'Solicitado']
+        .forEach(val => {
+          const td = document.createElement('td');
+          td.textContent = val || '';
+          td.style.cssText = 'padding:10px;border-top:1px solid #ddd;vertical-align:top';
+          tr.appendChild(td);
+        });
+
+      const actions = document.createElement('td');
+      actions.style.cssText = 'padding:10px;border-top:1px solid #ddd';
+
+      const confirm = document.createElement('button');
+      confirm.textContent = 'Confirmar consulta';
+      confirm.onclick = async () => {
+        try {
+          await updateDoc(doc(db, 'agendamentos', item.id), {
+            status: 'Confirmado'
+          });
+          tr.children[6].textContent = 'Confirmado';
+          alert('Consulta confirmada!');
+        } catch (err) {
+          console.error(err);
+          alert('Erro ao confirmar consulta.');
+        }
+      };
+
+      const whatsapp = document.createElement('button');
+      whatsapp.textContent = 'Enviar WhatsApp';
+      whatsapp.onclick = () => {
+        const telefone = String(a.telefone || '').replace(/\D/g, '');
+        if (!telefone) {
+          alert('Telefone não encontrado.');
+          return;
+        }
+
+        const numero = telefone.startsWith('55') ? telefone : '55' + telefone;
+        const mensagem = `Olá, ${a.nome}! Sua consulta na ODONTOVITA foi confirmada.\nServiço: ${a.servico}\nData: ${a.data}\nHorário: ${a.horario}\nAguardamos você!`;
+
+        window.open(
+          'https://wa.me/' + numero + '?text=' + encodeURIComponent(mensagem),
+          '_blank'
+        );
+      };
+
+      const cancel = document.createElement('button');
+      cancel.textContent = 'Cancelar consulta';
+      cancel.onclick = async () => {
+        if (!window.confirm('Deseja cancelar este agendamento?')) return;
+
+        try {
+          await updateDoc(doc(db, 'agendamentos', item.id), {
+            status: 'Cancelado'
+          });
+          tr.children[6].textContent = 'Cancelado';
+          alert('Agendamento cancelado.');
+        } catch (err) {
+          console.error(err);
+          alert('Erro ao cancelar.');
+        }
+      };
+
+      [confirm, whatsapp, cancel].forEach(btn => {
+        btn.style.cssText = 'display:block;margin:5px;padding:8px;border:0;border-radius:6px;cursor:pointer';
+        actions.appendChild(btn);
+      });
+
+      tr.appendChild(actions);
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    list.replaceChildren(table);
+    msg.textContent = `${snap.size} agendamento(s).`;
+
+  } catch (err) {
+    console.error(err);
+    msg.textContent = 'Erro ao carregar agendamentos.';
+  }
+});
 </script>
 </body></html>
